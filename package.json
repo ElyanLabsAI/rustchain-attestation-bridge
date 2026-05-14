@@ -1,0 +1,33 @@
+{
+  "name": "rustchain-attestation-bridge",
+  "version": "0.0.1",
+  "description": "HTTP bridge that exposes RustChain hardware-attestation as a service. External systems (ChainGPT AIVM nodes, etc.) submit hardware fingerprint data and receive signed attestation tokens proving real-hardware authenticity.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/test_attestation.js",
+    "example:aivm": "node examples/client-aivm.js",
+    "keygen": "node src/keygen.js"
+  },
+  "license": "MIT",
+  "author": "Elyan Labs",
+  "keywords": [
+    "rustchain",
+    "hardware-attestation",
+    "anti-emulation",
+    "elyan-labs",
+    "depin",
+    "ai-vm",
+    "chaingpt"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elyanlabs/rustchain-attestation-bridge.git"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^2.1.0",
+    "express": "^4.21.0"
+  }
+}
