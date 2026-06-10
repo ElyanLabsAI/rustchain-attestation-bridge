@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Fingerprint validator — server-side checks on submitted hardware fingerprint
 // data. Mirrors the logic in RustChain's fingerprint_checks.py (the 6-check
 // hardware-attestation spec used by all RustChain miners).

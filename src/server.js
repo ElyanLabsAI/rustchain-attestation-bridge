@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // RustChain Attestation Bridge — HTTP service.
 //
 // External nodes (ChainGPT AIVM, any DePIN system) submit hardware fingerprint

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Round-trip test: keygen → server start → submit valid fingerprint → verify
 // token → submit invalid (VM) fingerprint → confirm rejection → verify tampered
 // token rejected.

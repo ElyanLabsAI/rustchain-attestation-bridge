@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Example: how a ChainGPT AIVM node (or any external system) would call the
 // RustChain Attestation Bridge to prove its hardware is real (not a VM).
 //

@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 # Raw curl examples for the RustChain Attestation Bridge.
 # Run after starting the bridge:  npm start
 #

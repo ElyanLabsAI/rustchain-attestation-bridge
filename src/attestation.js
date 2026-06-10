@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Attestation token issuance + verification using Ed25519.
 //
 // Token format (compact, URL-safe):

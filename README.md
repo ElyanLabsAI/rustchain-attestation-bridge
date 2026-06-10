@@ -1,3 +1,5 @@
+[![BCOS Certified](https://img.shields.io/badge/BCOS-Certified-brightgreen?style=flat)](BCOS.md)
+
 # RustChain Attestation Bridge
 
 HTTP service that exposes [RustChain](https://github.com/elyanlabs/Rustchain)'s 6-check

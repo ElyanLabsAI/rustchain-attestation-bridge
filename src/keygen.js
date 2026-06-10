@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Generate a fresh Ed25519 keypair for the bridge. Run once at setup; save the
 // private key to .env (never commit) and publish the public key for offline
 // verification.
