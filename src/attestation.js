@@ -67,10 +67,16 @@ export class Attestation {
   // Verify a token. Returns { valid, payload, error }.
   async verify(token, { publicKey = null } = {}) {
     try {
-      const [payloadB64, sigB64] = token.split('.');
-      if (!payloadB64 || !sigB64) {
-        return { valid: false, error: 'malformed token (must have payload.signature)' };
+      if (typeof token !== 'string' || token.length === 0) {
+        return { valid: false, error: 'token must be a non-empty string' };
       }
+      // Exactly two segments. A `a.b.c` token must NOT verify by silently
+      // ignoring the trailing junk — split('.') destructuring would do that.
+      const parts = token.split('.');
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        return { valid: false, error: 'malformed token (must be exactly payload.signature)' };
+      }
+      const [payloadB64, sigB64] = parts;
 
       const payloadBytes = b64urlDecode(payloadB64);
       const signature = b64urlDecode(sigB64);
@@ -81,7 +87,13 @@ export class Attestation {
 
       const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
       const now = Math.floor(Date.now() / 1000);
-      if (payload.expires_at && payload.expires_at < now) {
+      // SECURITY: a token with no usable expiry is treated as invalid, not
+      // eternal. Every token we issue sets expires_at; a verified-signature
+      // token lacking it is malformed and must be rejected (fail closed).
+      if (!Number.isFinite(payload.expires_at)) {
+        return { valid: false, payload, error: 'token missing valid expires_at' };
+      }
+      if (payload.expires_at < now) {
         return { valid: false, payload, error: 'token expired' };
       }
 
@@ -105,17 +117,33 @@ function b64urlDecode(s) {
 }
 
 // Hash node identifier from submission for consistent IDing across retries.
-export function deriveNodeId(fingerprint) {
-  const hwid = fingerprint.hardware_id || fingerprint.hwid;
-  if (hwid && hwid.length >= 16) return hwid;
+//
+// SECURITY: a client-supplied hardware_id is only used verbatim if it is a
+// short, charset-restricted opaque token. Anything else is hashed, so an
+// attacker can never get an arbitrary string echoed into a signed attestation
+// payload. validateFingerprint() should already have rejected a malformed
+// hardware_id before we get here; this is defense in depth.
+const HWID_VERBATIM_PATTERN = /^[A-Za-z0-9_.:-]{16,128}$/;
 
-  // Fallback: hash device fields
+export function deriveNodeId(fingerprint) {
+  // Select explicitly (not `a || b`) so a falsy-but-present hardware_id is not
+  // coalesced into hwid unexpectedly.
+  const hwid = ('hardware_id' in fingerprint) ? fingerprint.hardware_id : fingerprint.hwid;
+  if (typeof hwid === 'string' && HWID_VERBATIM_PATTERN.test(hwid)) {
+    return hwid;
+  }
+
+  // Fallback: hash device fields into a fixed-width opaque ID. The FULL rejected
+  // hwid is mixed in (not a prefix slice) so two distinct oversized IDs that
+  // happen to share a prefix still produce distinct node IDs. sha512 handles
+  // arbitrary-length input; the request body size is already capped server-side.
   const device = fingerprint.device || {};
   const fields = [
     device.device_model || device.model || '',
     device.device_arch || device.arch || '',
     device.device_family || device.family || '',
     device.cpu_serial || '',
+    typeof hwid === 'string' ? hwid : '',
   ].join('|');
 
   return Buffer.from(sha512(new TextEncoder().encode(fields))).toString('hex').slice(0, 32);

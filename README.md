@@ -205,6 +205,42 @@ gets 100; a node that submits only the 2 required gets ~33.
 - **Tokens are stateless** — no server-side session, all claims embedded
 - **Forgery requires the bridge's private key** — protect it
 
+### Input-validation hardening
+
+The bridge issues *signed* attestations from *untrusted* submissions, so it
+validates fail-closed:
+
+- **No blind `passed: true` trust.** `anti_emulation` must be explicitly
+  `passed === true`; a missing or non-boolean value is rejected. (This is the
+  same regression the main RustChain node's audit caught — the bridge must not
+  reintroduce it.)
+- **Clock-drift gate is NaN-safe.** The CV check uses `Number.isFinite(cv) &&
+  cv >= min`, so `NaN`/`Infinity`/non-numbers fail closed instead of slipping
+  past a bare `cv < min` comparison. There is deliberately no upper CV bound —
+  CV has no universal ceiling and a noisy environment can read high.
+- **`hardware_id` is bounded.** It ends up inside a signed token, so it must be
+  16–128 chars from `[A-Za-z0-9_.:-]`. An out-of-spec value is rejected at
+  `/attest`; `deriveNodeId` additionally hashes (never echoes) any non-conforming
+  id, so an attacker can't get arbitrary text signed into a payload.
+- **Token verification is strict.** A token must be exactly `payload.signature`
+  (a third `.segment` is rejected, not silently ignored) and must carry a finite
+  `expires_at` — a signed token with no expiry is treated as invalid, not eternal.
+- **No internal-error leakage.** 5xx responses return an opaque
+  `{ error: "internal_error" }`; full detail is logged server-side only.
+- **Tokens are bearer credentials and are not logged.** The request logger
+  redacts the token segment of `/verify/:token`.
+
+### Operational guards (opt-in)
+
+- **Rate limiting** is available but **off by default** (in-memory, per-IP). Turn
+  it on with `BRIDGE_RATE_LIMIT=1` and tune `BRIDGE_RATE_MAX` (default 60/min).
+  It is a single-instance flood guard, not a fleet-wide limiter.
+- **Behind a reverse proxy** (nginx, etc.), set `BRIDGE_TRUST_PROXY` (`1`, a hop
+  count, or a CIDR/IP list) so `req.ip` is the real client — otherwise the
+  limiter would key on the shared proxy IP. Leave it unset when the bridge is
+  directly exposed (default), since `X-Forwarded-For` is spoofable.
+- **Body size** is capped at 256 KB.
+
 ---
 
 ## Run tests
@@ -215,7 +251,10 @@ npm test
 
 Tests cover: validateFingerprint accept/reject paths, attestation issue+verify
 roundtrip, tampered token rejection, expired token rejection, deriveNodeId
-stability.
+stability, plus the input-validation hardening above — non-finite CV rejection,
+`passed:true`-without-evidence rejection, malformed/oversized `hardware_id`
+rejection, `deriveNodeId` never echoing an illegal id, mandatory `expires_at`,
+and multi-segment token rejection. 13 tests, no network required.
 
 ---
 

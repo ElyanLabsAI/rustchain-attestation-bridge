@@ -144,4 +144,112 @@ console.log('Test 7: deriveNodeId returns stable ID for same fingerprint');
 }
 console.log('  ✓ deriveNodeId stable');
 
-console.log('\n✓ All 7 tests passed');
+console.log('Test 8: non-finite clock cv is rejected (fail-closed gate)');
+{
+  // NaN/±Infinity/non-numbers must be rejected (a bare `cv < min` gate would let
+  // them through). A high-but-finite cv (e.g. 100) is allowed — CV has no upper
+  // bound, so we must NOT reject legitimate noisy-environment measurements.
+  for (const badCv of [NaN, Infinity, -Infinity, '0.5', null]) {
+    const fp = {
+      hardware_id: 'nan-test-eeeeeeeeeeeeeeee',
+      device: { device_family: 'x86_64' },
+      checks: {
+        anti_emulation: { passed: true },
+        clock_drift: { passed: true, data: { cv: badCv } },
+      },
+    };
+    const v = validateFingerprint(fp);
+    assert.equal(v.valid, false, `cv=${String(badCv)} must NOT validate`);
+  }
+  // Sanity: a high finite cv is accepted (no false upper bound).
+  const highCv = validateFingerprint({
+    hardware_id: 'highcv-test-eeeeeeeeeeee',
+    device: { device_family: 'x86_64' },
+    checks: { anti_emulation: { passed: true }, clock_drift: { passed: true, data: { cv: 100 } } },
+  });
+  assert.equal(highCv.valid, true, 'high finite cv=100 must validate (no false ceiling)');
+}
+console.log('  ✓ non-finite cv rejected; high finite cv accepted');
+
+console.log('Test 9: anti_emulation without passed:true is rejected');
+{
+  for (const antiEmu of [{}, { passed: 'yes' }, { passed: 1 }, { data: {} }]) {
+    const fp = {
+      hardware_id: 'noproof-test-ffffffffffff',
+      device: { device_family: 'x86_64' },
+      checks: { anti_emulation: antiEmu, clock_drift: { passed: true, data: { cv: 0.08 } } },
+    };
+    const v = validateFingerprint(fp);
+    assert.equal(v.valid, false, `anti_emulation=${JSON.stringify(antiEmu)} must NOT validate`);
+  }
+}
+console.log('  ✓ unproven anti_emulation rejected (no blind passed:true trust)');
+
+console.log('Test 10: malformed / oversized hardware_id rejected');
+{
+  const cases = [
+    'short',                                  // too short
+    'a'.repeat(200),                          // too long
+    'has spaces and bad/chars!!!!!!!',        // illegal charset
+    '"; DROP TABLE miners; -- padding1234',   // injection-ish
+  ];
+  for (const hwid of cases) {
+    const fp = {
+      hardware_id: hwid,
+      device: { device_family: 'x86_64' },
+      checks: { anti_emulation: { passed: true }, clock_drift: { passed: true, data: { cv: 0.08 } } },
+    };
+    const v = validateFingerprint(fp);
+    assert.equal(v.valid, false, `hwid="${hwid.slice(0, 20)}..." must NOT validate`);
+  }
+}
+console.log('  ✓ malformed hardware_id rejected');
+
+console.log('Test 11: deriveNodeId never echoes an illegal hwid verbatim');
+{
+  const evil = '<script>'.repeat(40); // long + illegal chars
+  const id = deriveNodeId({ hardware_id: evil, device: { device_arch: 'modern' } });
+  assert.notEqual(id, evil, 'illegal hwid must be hashed, not echoed');
+  assert.match(id, /^[0-9a-f]{32}$/, 'fallback id is a 32-hex hash');
+}
+console.log('  ✓ illegal hwid hashed, not echoed into signed payload');
+
+console.log('Test 12: token with no expires_at is rejected even if signature is valid');
+{
+  const ed = await import('@noble/ed25519');
+  const sha512mod = (await import('@noble/hashes/sha512.js')).sha512;
+  ed.etc.sha512Sync = (...m) => sha512mod(ed.etc.concatBytes(...m));
+
+  const privateKey = ed.utils.randomPrivateKey();
+  const att = new Attestation({ privateKey, bridgeUrl: 'http://test' });
+
+  // Hand-craft a validly-signed token whose payload omits expires_at.
+  const payload = { v: 1, node_id: 'no-exp', attested_at: Math.floor(Date.now() / 1000) };
+  const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
+  const sig = await ed.sign(payloadBytes, privateKey);
+  const b64url = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const token = `${b64url(payloadBytes)}.${b64url(sig)}`;
+
+  const verified = await att.verify(token);
+  assert.equal(verified.valid, false, 'token without expires_at must NOT verify');
+  assert.ok(verified.error?.includes('expires_at'), 'error should mention expires_at');
+}
+console.log('  ✓ token missing expires_at rejected');
+
+console.log('Test 13: three-segment token is rejected (no silent junk-ignore)');
+{
+  const ed = await import('@noble/ed25519');
+  const sha512mod = (await import('@noble/hashes/sha512.js')).sha512;
+  ed.etc.sha512Sync = (...m) => sha512mod(ed.etc.concatBytes(...m));
+
+  const privateKey = ed.utils.randomPrivateKey();
+  const att = new Attestation({ privateKey, bridgeUrl: 'http://test' });
+  const { token } = await att.issue({ nodeId: 'three-seg', hardwareClass: 'real_hardware' });
+
+  const verified = await att.verify(token + '.extrajunk');
+  assert.equal(verified.valid, false, 'a.b.c token must NOT verify');
+  assert.ok(verified.error?.includes('malformed'), 'error should mention malformed');
+}
+console.log('  ✓ three-segment token rejected');
+
+console.log('\n✓ All 13 tests passed');

@@ -15,6 +15,19 @@
 // hardware). It validates that the submitted RESULTS are well-formed, internally
 // consistent, and don't show telltale signs of forgery.
 
+// Floor for the clock-drift coefficient of variation. Below this reads as
+// synthetic/too-uniform timing. There is deliberately NO upper bound: CV has no
+// universal ceiling and a noisy-but-legitimate environment can measure high, so
+// an arbitrary cap would reject real hardware.
+const CLOCK_CV_MIN = 0.0001;
+
+// Bounds on a client-supplied hardware_id. It ends up inside a signed token and
+// is used as a map/log key, so it must be a short, opaque, charset-restricted
+// identifier — not an arbitrary attacker-controlled blob.
+const HWID_MIN_LEN = 16;
+const HWID_MAX_LEN = 128;
+const HWID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+
 export function validateFingerprint(fingerprint) {
   const errors = [];
   const warnings = [];
@@ -28,43 +41,65 @@ export function validateFingerprint(fingerprint) {
     return { valid: false, errors: ['fingerprint.checks missing'], warnings: [] };
   }
 
-  // Required: anti_emulation must be present and pass
+  // Required: anti_emulation must be present and EXPLICITLY pass.
+  // SECURITY: we require passed === true, not "not false". A submission that
+  // omits `passed` (or sends a non-boolean) must NOT slip through — this is the
+  // exact "trust passed:true blindly" regression BuilderFred's audit caught on
+  // the main node. Fail closed.
   const antiEmu = checks.anti_emulation;
-  if (!antiEmu) {
+  if (!antiEmu || typeof antiEmu !== 'object') {
     errors.push('checks.anti_emulation missing');
-  } else if (antiEmu.passed === false) {
-    const indicators = antiEmu.data?.vm_indicators || [];
-    errors.push(`vm_detected: ${JSON.stringify(indicators)}`);
+  } else if (antiEmu.passed !== true) {
+    const indicators = Array.isArray(antiEmu.data?.vm_indicators)
+      ? antiEmu.data.vm_indicators
+      : [];
+    errors.push(`vm_detected_or_unproven: ${JSON.stringify(indicators)}`);
   }
 
-  // Required: clock_drift must show real-hardware variance (CV > 0.0001)
+  // Required: clock_drift must show real-hardware variance (CV > 0.0001).
+  // SECURITY: written as a positive finite-number assertion. A bare `cv < 0.0001`
+  // gate is bypassed by NaN/Infinity (every comparison with NaN is false), which
+  // would let synthetic timing pass. Number.isFinite() rejects NaN, ±Infinity,
+  // and non-numbers in one check, so malformed input fails closed.
   const clock = checks.clock_drift;
-  if (!clock) {
+  if (!clock || typeof clock !== 'object') {
     errors.push('checks.clock_drift missing');
   } else {
     const cv = clock.data?.cv;
-    if (typeof cv !== 'number') {
-      errors.push('checks.clock_drift.data.cv missing or not a number');
-    } else if (cv < 0.0001) {
-      errors.push(`timing_too_uniform: cv=${cv} (real silicon has cv > 0.0001)`);
+    if (!Number.isFinite(cv)) {
+      errors.push('checks.clock_drift.data.cv missing or not a finite number');
+    } else if (cv < CLOCK_CV_MIN) {
+      errors.push(`timing_too_uniform: cv=${cv} (real silicon has cv > ${CLOCK_CV_MIN})`);
     }
   }
 
-  // Optional but recommended: other 4 checks
+  // Optional but recommended: other 4 checks. Only a check that EXPLICITLY
+  // reports passed === true counts toward the trust score (see computeTrustScore);
+  // here we just surface visibility on what was provided vs. failed.
   const optionalChecks = ['cache_timing', 'simd_identity', 'thermal_drift', 'instruction_jitter'];
   for (const name of optionalChecks) {
     const c = checks[name];
-    if (!c) {
+    if (!c || typeof c !== 'object') {
       warnings.push(`checks.${name} not provided (recommended for higher trust score)`);
-    } else if (c.passed === false) {
-      warnings.push(`${name} failed: ${JSON.stringify(c.data || {}).slice(0, 200)}`);
+    } else if (c.passed !== true) {
+      warnings.push(`${name} failed_or_unproven: ${JSON.stringify(c.data || {}).slice(0, 200)}`);
     }
   }
 
-  // Hardware ID consistency
-  const hardwareId = fingerprint.hardware_id || fingerprint.hwid;
-  if (hardwareId && (typeof hardwareId !== 'string' || hardwareId.length < 16)) {
-    errors.push('hardware_id must be a string of at least 16 chars');
+  // Hardware ID consistency. If supplied, it must be a short, charset-restricted
+  // opaque identifier — it gets embedded in a signed token and used as a key.
+  // Select explicitly (not `a || b`) so a falsy-but-present value like
+  // hardware_id: '' or 0 is still caught by the type/length checks below rather
+  // than silently coalescing past them.
+  const hardwareId = ('hardware_id' in fingerprint) ? fingerprint.hardware_id : fingerprint.hwid;
+  if (hardwareId !== undefined && hardwareId !== null) {
+    if (typeof hardwareId !== 'string') {
+      errors.push('hardware_id must be a string');
+    } else if (hardwareId.length < HWID_MIN_LEN || hardwareId.length > HWID_MAX_LEN) {
+      errors.push(`hardware_id must be ${HWID_MIN_LEN}-${HWID_MAX_LEN} chars (got ${hardwareId.length})`);
+    } else if (!HWID_PATTERN.test(hardwareId)) {
+      errors.push('hardware_id contains illegal characters (allowed: A-Z a-z 0-9 _ . : -)');
+    }
   }
 
   // Optional ROM fingerprint check (PowerPC, 68K, Amiga retro hardware)
