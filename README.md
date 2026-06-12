@@ -169,12 +169,61 @@ if (!ok) {
 //    e.g., Authorization: Bearer <token> when claiming inference rewards
 //    e.g., transaction metadata field for on-chain proof of attested compute
 
-// 4. Verify offline (anyone can do this with the bridge public key)
+// 4. Verify offline (anyone can do this with just the bridge public key)
+import { verifyToken } from 'rustchain-attestation-bridge/src/attestation.js';
 const bridgePubKey = '<hex string from /pubkey, cached>';
-const valid = await verifyTokenOffline(token, bridgePubKey);
+const { valid, payload } = await verifyToken(token, { publicKey: bridgePubKey });
 ```
 
 See [`examples/client-aivm.js`](examples/client-aivm.js) for a complete worked example.
+
+---
+
+## Recipient-side gating (x402 / paid-request flows)
+
+The point of attestation is that a **recipient** can refuse a request unless the
+sender proves real hardware. The bridge ships a drop-in Express middleware and a
+standalone offline verifier so a recipient never has to call the bridge per
+request — it verifies against the pinned public key.
+
+```javascript
+import { createVerifier, requireAttestation } from 'rustchain-attestation-bridge/src/verify-middleware.js';
+
+// Pin the bridge's public key once (offline). Or: { bridgeUrl } to fetch /pubkey.
+const verifier = await createVerifier({ publicKeyHex: process.env.BRIDGE_PUBKEY });
+
+app.post('/x402/charge',
+  requireAttestation(verifier, {
+    audience: 'x402.payments.example',  // reject tokens minted for another service
+    minTrustScore: 50,                   // require ≥50/100 fingerprint trust
+    allowDeviceArch: ['g4', 'g5', 'modern'], // optional device-class allowlist
+  }),
+  (req, res) => {
+    // req.attestation holds the verified claims
+    res.json({ ok: true, charged_by: req.attestation.node_id });
+  });
+```
+
+Status codes: **401** for a missing/expired/forged token (authentication
+failure); **403** for a valid token that fails policy — wrong audience, low
+trust score, disallowed device class (authorization failure).
+
+### Audience binding (replay resistance)
+
+A bare bearer token is valid anywhere until it expires — a captured token could
+be replayed against a *different* recipient. To prevent that, a sender requests
+a token **scoped to one recipient** by passing `audience` in the `/attest` body:
+
+```javascript
+body: JSON.stringify({ ...fingerprint, audience: 'x402.payments.example' })
+```
+
+The recipient's `requireAttestation({ audience: 'x402.payments.example' })` then
+rejects any token minted for a different audience. Audience is opt-in on both
+sides: omit it and tokens behave as before (valid for any verifier).
+
+See [`examples/recipient-gate.js`](examples/recipient-gate.js) for a runnable
+end-to-end demo (valid → 200, replay-at-wrong-service → 403, no-token → 401).
 
 ---
 
@@ -249,12 +298,18 @@ validates fail-closed:
 npm test
 ```
 
-Tests cover: validateFingerprint accept/reject paths, attestation issue+verify
-roundtrip, tampered token rejection, expired token rejection, deriveNodeId
-stability, plus the input-validation hardening above — non-finite CV rejection,
-`passed:true`-without-evidence rejection, malformed/oversized `hardware_id`
-rejection, `deriveNodeId` never echoing an illegal id, mandatory `expires_at`,
-and multi-segment token rejection. 13 tests, no network required.
+`test/test_attestation.js` (13 tests) covers: validateFingerprint accept/reject
+paths, attestation issue+verify roundtrip, tampered/expired token rejection,
+deriveNodeId stability, plus the input-validation hardening — non-finite CV
+rejection, `passed:true`-without-evidence rejection, malformed/oversized
+`hardware_id` rejection, `deriveNodeId` never echoing an illegal id, mandatory
+`expires_at`, and multi-segment token rejection.
+
+`test/test_verify.js` (7 tests) covers the offline verifier + middleware:
+pubkey-only verification, wrong-key rejection, `parsePublicKey` validation,
+audience binding (match/mismatch/backward-compat), trust-score and device-arch
+policy gates, `createVerifier` from pinned hex and from `/pubkey`, and the
+`requireAttestation` middleware's 200/401/403 paths. No network required.
 
 ---
 

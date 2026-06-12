@@ -130,12 +130,24 @@ app.post('/attest', rateLimit, async (req, res) => {
     // Classify the device
     const { family, arch, model } = classifyDevice(fingerprint);
 
+    // Optional audience binding: the submitter may request a token scoped to a
+    // specific recipient/service (e.g. an x402 endpoint id). A recipient that
+    // checks the audience then rejects tokens minted for a different recipient.
+    let audience;
+    if (fingerprint.audience !== undefined && fingerprint.audience !== null) {
+      if (typeof fingerprint.audience !== 'string' || fingerprint.audience.length === 0 || fingerprint.audience.length > 200) {
+        return res.status(400).json({ ok: false, error: 'invalid_audience', hint: 'audience must be a non-empty string ≤200 chars' });
+      }
+      audience = fingerprint.audience;
+    }
+
     // Issue token
     const result = await attestation.issue({
       nodeId,
       hardwareClass: 'real_hardware', // passed validation
       deviceArch: arch,
       trustScore: validation.score,
+      audience,
     });
 
     res.json({

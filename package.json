@@ -7,8 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/test_attestation.js",
+    "test": "node test/test_attestation.js && node test/test_verify.js",
     "example:aivm": "node examples/client-aivm.js",
+    "example:gate": "node examples/recipient-gate.js",
     "keygen": "node src/keygen.js"
   },
   "license": "MIT",
