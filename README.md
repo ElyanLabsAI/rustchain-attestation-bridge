@@ -2,7 +2,7 @@
 
 # RustChain Attestation Bridge
 
-HTTP service that exposes [RustChain](https://github.com/elyanlabs/Rustchain)'s 6-check
+HTTP service that exposes [RustChain](https://github.com/Scottcjn/Rustchain)'s 6-check
 hardware-attestation as a callable API. External systems — particularly AI L1 networks
 like ChainGPT AIVM and any DePIN platform that needs VM-resistant compute — submit
 hardware fingerprint data and receive Ed25519-signed attestation tokens proving the
@@ -100,7 +100,7 @@ Signature: Ed25519 over the payload bytes, verifiable with the bridge public key
 ## Quick start
 
 ```bash
-git clone https://github.com/elyanlabs/rustchain-attestation-bridge.git
+git clone https://github.com/ElyanLabsAI/rustchain-attestation-bridge.git
 cd rustchain-attestation-bridge
 npm install
 
@@ -328,6 +328,6 @@ MIT — Elyan Labs
 
 ## Related
 
-- [RustChain](https://github.com/elyanlabs/Rustchain) — the source-of-truth chain whose attestation scheme this exposes
+- [RustChain](https://github.com/Scottcjn/Rustchain) — the source-of-truth chain whose attestation scheme this exposes
 - [ChainGPT AIVM](https://docs.chaingpt.org/overview/road-map/2024-2025-aivm-blockchain-initiative) — example consumer (AI L1 that needs VM-resistant nodes)
 - `fingerprint_checks.py` — the original 6-check implementation (in the RustChain repo)

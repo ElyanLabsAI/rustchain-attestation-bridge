@@ -25,7 +25,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elyanlabs/rustchain-attestation-bridge.git"
+    "url": "git+https://github.com/ElyanLabsAI/rustchain-attestation-bridge.git"
   },
   "dependencies": {
     "@noble/ed25519": "^2.1.0",
