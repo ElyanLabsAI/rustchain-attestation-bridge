@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Tests for the standalone offline verifier + audience binding + Express
 // middleware. No network, no server, no extra deps (mock req/res).
 //

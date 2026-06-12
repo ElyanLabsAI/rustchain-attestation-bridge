@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Example: the RECIPIENT side of the engagement demo.
 //
 // "An agent makes an x402-paid request; the recipient validates the sender's

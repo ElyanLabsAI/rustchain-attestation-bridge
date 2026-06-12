@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Express middleware: gate a route on a valid RustChain attestation token.
 //
 // This is the recipient side of the engagement demo — "an agent makes an
